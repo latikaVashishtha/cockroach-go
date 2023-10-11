@@ -55,7 +55,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cockroachdb/cockroach-go/v2/testserver/version"
+	"github.com/janmejay/cockroach-go/v2/testserver/version"
 	// Import postgres driver.
 	_ "github.com/lib/pq"
 )
