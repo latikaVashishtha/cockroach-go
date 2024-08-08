@@ -60,7 +60,37 @@ import (
 	_ "github.com/lib/pq"
 )
 
-var customBinaryFlag = flag.String("cockroach-binary", "", "Use specified cockroach binary")
+var (
+	flagMutex        sync.Mutex
+	customBinaryFlag = flag.String(
+		"cockroach-binary",
+		"",
+		"Use specified cockroach binary",
+	)
+)
+
+func GetCustomBinaryFlag() string {
+	flagMutex.Lock()
+	defer flagMutex.Unlock()
+
+	return *customBinaryFlag
+}
+
+func SetCustomBinaryFlag(binaryPath string) error {
+	flagMutex.Lock()
+	defer flagMutex.Unlock()
+
+	f := flag.Lookup("cockroach-binary")
+	if f == nil {
+		return errors.New("flag cockroach-binary not found")
+	}
+
+	// the following also sets customBinaryFlag
+	if err := f.Value.Set(binaryPath); err != nil {
+		return fmt.Errorf("could not set value of cockroach-binary flag, err: %v", err)
+	}
+	return nil
+}
 
 const (
 	stateNew = 1 + iota
@@ -453,10 +483,12 @@ func NewTestServer(opts ...TestServerOpt) (TestServer, error) {
 	}
 	log.Printf("cockroach logs directory: %s", serverArgs.cockroachLogsDir)
 
+	crDBBinaryPath := GetCustomBinaryFlag()
+
 	if serverArgs.cockroachBinary != "" {
 		// CockroachBinaryPathOpt() overrides the flag or env variable.
-	} else if len(*customBinaryFlag) > 0 {
-		serverArgs.cockroachBinary = *customBinaryFlag
+	} else if len(crDBBinaryPath) > 0 {
+		serverArgs.cockroachBinary = crDBBinaryPath
 	} else if customBinaryEnv := os.Getenv("COCKROACH_BINARY"); customBinaryEnv != "" {
 		serverArgs.cockroachBinary = customBinaryEnv
 	}
