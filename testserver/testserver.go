@@ -397,6 +397,7 @@ func ListenAddrHostOpt(host string) TestServerOpt {
 }
 
 // ListenAddrHostsOpt allows explicitly setting node hosts for multiple nodes.
+// Note: This takes precedence over ListenAddrHostOpt.
 func ListenAddrHostsOpt(hosts ...string) TestServerOpt {
 	return func(args *testServerArgs) {
 		args.listenAddrHosts = hosts
@@ -619,7 +620,7 @@ func NewTestServer(opts ...TestServerOpt) (TestServer, error) {
 	if len(serverArgs.listenAddrHosts) == 0 {
 		serverArgs.listenAddrHosts = make([]string, serverArgs.numNodes)
 		for i := range serverArgs.listenAddrHosts {
-			serverArgs.listenAddrHosts[i] = defaultListenAddrHost
+			serverArgs.listenAddrHosts[i] = serverArgs.listenAddrHost
 		}
 	}
 	for i := 0; i < serverArgs.numNodes; i++ {
