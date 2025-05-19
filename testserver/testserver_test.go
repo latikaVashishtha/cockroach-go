@@ -235,6 +235,19 @@ func TestRunServer(t *testing.T) {
 			},
 		},
 		{
+			name: "Custom 5 Node Insecure On Disk",
+			instantiation: func(t *testing.T) (*sql.DB, func()) {
+				return testserver.NewDBForTest(t, testserver.CustomNodeOpt(5),
+					testserver.StoreOnDiskOpt(),
+					testserver.AddListenAddrPortOpt(26257),
+					testserver.AddListenAddrPortOpt(26258),
+					testserver.AddListenAddrPortOpt(26259),
+					testserver.AddListenAddrPortOpt(26260),
+					testserver.AddListenAddrPortOpt(26261),
+				)
+			},
+		},
+		{
 			name: "No File Cleanup",
 			instantiation: func(t *testing.T) (*sql.DB, func()) {
 				return testserver.NewDBForTest(t, testserver.NoFileCleanup())
@@ -850,4 +863,48 @@ func TestCockroachLogsDirOpt(t *testing.T) {
 			require.NoError(t, err)
 		}
 	}
+}
+
+func TestMultipleHostAddresses(t *testing.T) {
+	hosts := []string{"127.0.0.1", "localhost", "0.0.0.0"}
+	ts, err := testserver.NewTestServer(
+		testserver.ThreeNodeOpt(),
+		testserver.ListenAddrHostsOpt(hosts...),
+		testserver.StoreOnDiskOpt())
+	require.NoError(t, err)
+	defer ts.Stop()
+
+	// Wait for all nodes to initialize
+	for i := 0; i < 3; i++ {
+		require.NoError(t, ts.WaitForInitFinishForNode(i))
+	}
+
+	// Verify each node is using the correct host
+	for i := 0; i < 3; i++ {
+		url := ts.PGURLForNode(i)
+		require.NotNil(t, url)
+
+		// Extract host from URL
+		host := url.Hostname()
+		require.Equal(t, hosts[i], host)
+
+		db, err := sql.Open("postgres", url.String())
+		require.NoError(t, err)
+		defer db.Close()
+
+		var result int
+		err = db.QueryRow("SELECT 1").Scan(&result)
+		require.NoError(t, err)
+		require.Equal(t, 1, result)
+	}
+
+	// Verify we can connect to the first node
+	db, err := sql.Open("postgres", ts.PGURL().String())
+	require.NoError(t, err)
+	defer db.Close()
+
+	var result int
+	err = db.QueryRow("SELECT 1").Scan(&result)
+	require.NoError(t, err)
+	require.Equal(t, 1, result)
 }
