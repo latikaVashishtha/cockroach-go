@@ -27,7 +27,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/janmejay/cockroach-go/v2/testserver/version"
+	"github.com/latikaVashishtha/cockroach-go/v2/testserver/version"
 )
 
 func (ts *testServerImpl) isTenant() bool {

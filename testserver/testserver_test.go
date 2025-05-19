@@ -31,7 +31,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/janmejay/cockroach-go/v2/testserver"
+	"github.com/latikaVashishtha/cockroach-go/v2/testserver"
 	"github.com/stretchr/testify/require"
 )
 
