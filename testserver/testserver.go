@@ -92,6 +92,13 @@ func SetCustomBinaryFlag(binaryPath string) error {
 	return nil
 }
 
+// CustomNodeOpt helps provide custom node count to testserver.
+func CustomNodeOpt(nodeCount int) TestServerOpt {
+	return func(args *testServerArgs) {
+		args.numNodes = nodeCount
+	}
+}
+
 const (
 	stateNew = 1 + iota
 	stateRunning
@@ -271,6 +278,7 @@ type testServerArgs struct {
 	localityFlags               []string
 	cockroachLogsDir            string
 	noFileCleanup               bool // do not clean files at `Stop`
+	listenAddrHosts             []string
 }
 
 // CockroachBinaryPathOpt is a TestServer option that can be passed to
@@ -385,6 +393,13 @@ func AddListenAddrPortOpt(port int) TestServerOpt {
 func ListenAddrHostOpt(host string) TestServerOpt {
 	return func(args *testServerArgs) {
 		args.listenAddrHost = host
+	}
+}
+
+// ListenAddrHostsOpt allows explicitly setting node hosts for multiple nodes.
+func ListenAddrHostsOpt(hosts ...string) TestServerOpt {
+	return func(args *testServerArgs) {
+		args.listenAddrHosts = hosts
 	}
 }
 
@@ -505,6 +520,11 @@ func NewTestServer(opts ...TestServerOpt) (TestServer, error) {
 		panic(fmt.Sprintf("got %d locality flags when %d are needed (one for each node)", len(serverArgs.localityFlags), serverArgs.numNodes))
 	}
 
+	if len(serverArgs.listenAddrHosts) > 0 && len(serverArgs.listenAddrHosts) != serverArgs.numNodes {
+		panic(fmt.Sprintf("got %d listen hosts when %d are needed (one for each node)",
+			len(serverArgs.listenAddrHosts), serverArgs.numNodes))
+	}
+
 	if serverArgs.cockroachBinary != "" {
 		log.Printf("Using custom cockroach binary: %s", serverArgs.cockroachBinary)
 		cockroachBinary, err := filepath.Abs(serverArgs.cockroachBinary)
@@ -596,7 +616,12 @@ func NewTestServer(opts ...TestServerOpt) (TestServer, error) {
 	if serverArgs.externalIODir == "" {
 		serverArgs.externalIODir = "disabled"
 	}
-
+	if len(serverArgs.listenAddrHosts) == 0 {
+		serverArgs.listenAddrHosts = make([]string, serverArgs.numNodes)
+		for i := range serverArgs.listenAddrHosts {
+			serverArgs.listenAddrHosts[i] = defaultListenAddrHost
+		}
+	}
 	for i := 0; i < serverArgs.numNodes; i++ {
 		storeArg := fmt.Sprintf("--store=type=mem,size=%.2f", serverArgs.storeMemSize)
 		logsBaseDir := filepath.Join(serverArgs.cockroachLogsDir, strconv.Itoa(i))
@@ -623,12 +648,12 @@ func NewTestServer(opts ...TestServerOpt) (TestServer, error) {
 				storeArg,
 				fmt.Sprintf(
 					"--listen-addr=%s:%d",
-					serverArgs.listenAddrHost,
+					serverArgs.listenAddrHosts[i],
 					serverArgs.listenAddrPorts[i],
 				),
 				fmt.Sprintf(
 					"--http-addr=%s:%d",
-					serverArgs.listenAddrHost,
+					serverArgs.listenAddrHosts[i],
 					serverArgs.httpPorts[i],
 				),
 				"--listening-url-file=" + nodes[i].listeningURLFile,
@@ -640,7 +665,7 @@ func NewTestServer(opts ...TestServerOpt) (TestServer, error) {
 				startCmd,
 				"--logtostderr",
 				secureOpt,
-				fmt.Sprintf("--host=%s", serverArgs.listenAddrHost),
+				fmt.Sprintf("--host=%s", serverArgs.listenAddrHosts[0]),
 				"--port=" + strconv.Itoa(serverArgs.listenAddrPorts[0]),
 				"--http-port=" + strconv.Itoa(serverArgs.httpPorts[0]),
 				storeArg,
