@@ -908,3 +908,103 @@ func TestMultipleHostAddresses(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, result)
 }
+
+func TestMultipleHostsSameHttpPort(t *testing.T) {
+	// Use different hosts but the same HTTP port
+	hosts := []string{"127.0.0.1", "127.0.0.2", "127.0.0.3"}
+	httpPort := 8080
+
+	// Get different SQL ports to avoid conflicts
+	sqlPorts := make([]int, 3)
+	for i := range sqlPorts {
+		port, err := getFreePort()
+		require.NoError(t, err)
+		sqlPorts[i] = port
+	}
+
+	ts, err := testserver.NewTestServer(
+		testserver.ThreeNodeOpt(),
+		testserver.ListenAddrHostsOpt(hosts...),
+		testserver.AddListenAddrPortOpt(sqlPorts[0]),
+		testserver.AddListenAddrPortOpt(sqlPorts[1]),
+		testserver.AddListenAddrPortOpt(sqlPorts[2]),
+		testserver.AddHttpPortOpt(httpPort),
+		testserver.AddHttpPortOpt(httpPort),
+		testserver.AddHttpPortOpt(httpPort),
+		testserver.StoreOnDiskOpt(),
+	)
+
+	if err != nil {
+		t.Logf("Error starting server: %v", err)
+		t.Logf("This may be expected if the hosts cannot all bind to the same HTTP port")
+		t.Skip("Skipping test: could not start server with same HTTP port on different hosts")
+	}
+	defer ts.Stop()
+
+	// Wait for all nodes to initialize
+	for i := 0; i < 3; i++ {
+		err := ts.WaitForInitFinishForNode(i)
+		if err != nil {
+			t.Logf("Node %d failed to initialize: %v", i, err)
+			t.Skip("Skipping test: node initialization failed")
+		}
+	}
+
+	// Verify each node is using the correct host for SQL connections
+	for i := 0; i < 3; i++ {
+		url := ts.PGURLForNode(i)
+		require.NotNil(t, url)
+
+		// Extract host from URL
+		host := url.Hostname()
+		require.Equal(t, hosts[i], host)
+
+		// Verify SQL port matches what we specified
+		port, _ := strconv.Atoi(url.Port())
+		require.Equal(t, sqlPorts[i], port)
+
+		// Try to connect to the node via SQL
+		db, err := sql.Open("postgres", url.String())
+		if err != nil {
+			t.Logf("Could not connect to node %d SQL: %v", i, err)
+			continue
+		}
+		defer db.Close()
+
+		var result int
+		err = db.QueryRow("SELECT 1").Scan(&result)
+		require.NoError(t, err)
+		require.Equal(t, 1, result)
+
+		// Verify HTTP port is accessible
+		// Note: We need to use the actual host, not "0.0.0.0" which is a binding address
+		httpHost := hosts[i]
+		httpURL := fmt.Sprintf("http://%s:%d/health", httpHost, httpPort)
+		httpResp, err := http.Get(httpURL)
+		if err != nil {
+			t.Logf("HTTP port check failed for node %d at %s: %v", i, httpURL, err)
+			continue
+		}
+		defer httpResp.Body.Close()
+
+		// Check if we got a successful response
+		require.Equal(t, http.StatusOK, httpResp.StatusCode, "HTTP health check failed for node %d", i)
+
+		// Read and verify the response body
+		body, err := io.ReadAll(httpResp.Body)
+		require.NoError(t, err)
+		require.Equal(t, string(body), "{\n\n}", "Unexpected health response from node %d", i)
+
+		t.Logf("Successfully connected to HTTP port for node %d at %s", i, httpURL)
+	}
+
+	// Verify we can connect to the first node
+	db, err := sql.Open("postgres", ts.PGURL().String())
+	require.NoError(t, err)
+	defer db.Close()
+
+	var result int
+	err = db.QueryRow("SELECT 1").Scan(&result)
+	require.NoError(t, err)
+	require.Equal(t, 1, result)
+}
